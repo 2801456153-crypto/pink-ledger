@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 
 // 统一数据目录名，保证开发版和安装版读同一份数据
 app.setName('pink-ledger');
@@ -101,4 +102,41 @@ ipcMain.handle('export:save', async (event, { defaultName, base64 }) => {
   if (canceled || !filePath) return { ok: false };
   fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
   return { ok: true, filePath };
+});
+
+// ---- AI 分析（调用大模型 API）----
+ipcMain.handle('ai:analyze', (event, { apiKey, baseUrl, model, messages }) => {
+  return new Promise((resolve) => {
+    const host = (baseUrl || 'https://api.deepseek.com').replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const body = JSON.stringify({ model: model || 'deepseek-chat', messages, stream: false, temperature: 0.6 });
+    const req = https.request({
+      hostname: host,
+      path: '/chat/completions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(data);
+          if (j.choices && j.choices[0]) {
+            resolve({ ok: true, text: j.choices[0].message.content });
+          } else {
+            resolve({ ok: false, error: (j.error && j.error.message) || 'AI 返回异常，请检查 API Key' });
+          }
+        } catch (e) {
+          resolve({ ok: false, error: 'AI 响应解析失败' });
+        }
+      });
+    });
+    req.on('error', (e) => resolve({ ok: false, error: '网络请求失败：' + e.message }));
+    req.setTimeout(60000, () => { req.destroy(); resolve({ ok: false, error: '请求超时，请稍后重试' }); });
+    req.write(body);
+    req.end();
+  });
 });

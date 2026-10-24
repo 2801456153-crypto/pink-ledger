@@ -22,6 +22,7 @@
       <button class="nav-btn" data-view="budget">💰 预算</button>
       <button class="nav-btn" data-view="assets">🏦 资产</button>
       <button class="nav-btn" data-view="recurring">🔁 周期记账</button>
+      <button class="nav-btn" data-view="audit">🔍 智能审计</button>
     </nav>
     <div class="sidebar-bottom">
       <button class="btn-ghost block" id="btnManageCats">🏷 分类管理</button>
@@ -158,6 +159,18 @@
       </header>
       <ul class="recurring-list" id="recurringList"></ul>
       <p class="view-tip">房租、水电等固定费用设置好后，每次打开软件都会自动补记到期的账。</p>
+    </div>
+
+    <!-- 智能审计视图 -->
+    <div class="view" id="viewAudit" hidden>
+      <header class="view-head">
+        <h2>🔍 智能审计</h2>
+        <button class="btn-ghost" id="btnAiSettings">⚙️ AI 设置</button>
+      </header>
+      <div class="audit-summary" id="auditSummary"></div>
+      <button class="btn-primary ai-analyze-btn" id="btnAiAnalyze">🤖 AI 深度分析</button>
+      <div class="ai-result hidden" id="aiResult"></div>
+      <ul class="audit-list" id="auditList"></ul>
     </div>
   </main>
 </div>
@@ -382,6 +395,34 @@
   <div class="image-viewer-box">
     <img id="imageViewerImg" src="" alt="">
     <button class="icon-btn close" id="btnCloseImageViewer">✕</button>
+  </div>
+</div>
+
+<!-- AI 设置弹窗 -->
+<div class="modal-overlay" id="aiModal" hidden>
+  <div class="modal small">
+    <div class="modal-head">
+      <h3>AI 设置</h3>
+      <button class="icon-btn close" data-close="aiModal">✕</button>
+    </div>
+    <div class="form-row">
+      <label>API Key</label>
+      <input type="password" id="aiApiKey" placeholder="粘贴你的 API Key">
+    </div>
+    <div class="form-row">
+      <label>接口地址（默认 DeepSeek，一般不用改）</label>
+      <input type="text" id="aiBaseUrl" placeholder="https://api.deepseek.com">
+    </div>
+    <div class="form-row">
+      <label>模型名称</label>
+      <input type="text" id="aiModel" placeholder="deepseek-chat">
+    </div>
+    <p class="view-tip">推荐用 DeepSeek（国内可注册、便宜）。到 platform.deepseek.com 注册并申请 API Key 后，粘贴到这里即可。</p>
+    <div class="modal-actions">
+      <div class="spacer"></div>
+      <button class="btn-ghost" data-close="aiModal">取消</button>
+      <button class="btn-primary" id="btnSaveAi">保存</button>
+    </div>
   </div>
 </div>
 

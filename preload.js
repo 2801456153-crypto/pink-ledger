@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld('api', {
   saveData: (data) => ipcRenderer.invoke('data:save', data),
   saveImage: (name, dataUrl) => ipcRenderer.invoke('image:save', { name, dataUrl }),
   loadImage: (relPath) => ipcRenderer.invoke('image:load', relPath),
-  exportExcel: (defaultName, base64) => ipcRenderer.invoke('export:save', { defaultName, base64 })
+  exportExcel: (defaultName, base64) => ipcRenderer.invoke('export:save', { defaultName, base64 }),
+  aiAnalyze: (config) => ipcRenderer.invoke('ai:analyze', config)
 });

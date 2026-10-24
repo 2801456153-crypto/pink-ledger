@@ -126,7 +126,7 @@ const calendar = $('calendar');
 const monthTitle = $('monthTitle');
 const sumIncome = $('sumIncome'), sumExpense = $('sumExpense'), sumBalance = $('sumBalance');
 const dayTitle = $('dayTitle'), txList = $('txList');
-const txModal = $('txModal'), catModal = $('catModal'), bookModal = $('bookModal'), assetModal = $('assetModal'), iconModal = $('iconModal'), recurringModal = $('recurringModal');
+const txModal = $('txModal'), catModal = $('catModal'), bookModal = $('bookModal'), assetModal = $('assetModal'), iconModal = $('iconModal'), recurringModal = $('recurringModal'), aiModal = $('aiModal');
 
 // ============ 数据加载/保存 ============
 function initData() {
@@ -137,7 +137,8 @@ function initData() {
     budgets: {},
     assets: {},
     worthHistory: {},
-    recurring: []
+    recurring: [],
+    aiConfig: { apiKey: '', baseUrl: '', model: '' }
   };
 }
 
@@ -150,6 +151,7 @@ async function load() {
   if (!state.assets) state.assets = {};
   if (!state.worthHistory) state.worthHistory = {};
   if (!state.recurring) state.recurring = [];
+  if (!state.aiConfig) state.aiConfig = { apiKey: '', baseUrl: '', model: '' };
   if (state.books.length === 0) {
     state.books.push({ id: uid(), name: '默认账本', icon: '🏠', mode: 'shared', linkedAssets: [] });
   }
@@ -309,11 +311,13 @@ function renderAll() {
   $('viewBudget').hidden = currentView !== 'budget';
   $('viewAssets').hidden = currentView !== 'assets';
   $('viewRecurring').hidden = currentView !== 'recurring';
+  $('viewAudit').hidden = currentView !== 'audit';
 
   if (currentView === 'calendar') renderCalendarView();
   else if (currentView === 'budget') renderBudgetView();
   else if (currentView === 'assets') renderAssetsView();
   else if (currentView === 'recurring') renderRecurringView();
+  else if (currentView === 'audit') renderAuditView();
 }
 
 function renderBooks() {
@@ -1152,6 +1156,208 @@ async function exportExcel() {
   if (res && res.ok) alert('导出成功！');
 }
 
+// ============ 智能审计（异常检测）============
+function detectAnomalies() {
+  const tx = state.transactions.filter(t => t.bookId === currentBookId);
+  const anomalies = [];
+
+  // 1. 重复记账：同日 + 同类型 + 同分类 + 同金额 >= 2 次
+  const seen = {};
+  tx.forEach(t => {
+    const key = `${t.date}|${t.type}|${t.categoryId}|${t.amount}`;
+    (seen[key] = seen[key] || []).push(t);
+  });
+  Object.values(seen).forEach(arr => {
+    if (arr.length >= 2) {
+      const t = arr[0];
+      const cat = getCat(t.type, t.categoryId);
+      anomalies.push({
+        type: '重复记账', severity: '高', icon: '🔁',
+        desc: `${t.date} 有 ${arr.length} 笔相同记录（${cat ? cat.name : '未分类'} ${fmt(t.amount)} 元），可能重复录入`,
+        txIds: arr.map(x => x.id)
+      });
+    }
+  });
+
+  // 2. 大额异常：单笔支出超过该分类平均单笔 3 倍且 > 500
+  const catAmounts = {};
+  tx.forEach(t => { if (t.type === 'expense') (catAmounts[t.categoryId] = catAmounts[t.categoryId] || []).push(t.amount); });
+  tx.forEach(t => {
+    if (t.type !== 'expense') return;
+    const amounts = catAmounts[t.categoryId] || [t.amount];
+    const avg = amounts.reduce((a, b) => a + b, 0) / amounts.length;
+    if (t.amount > 500 && t.amount > avg * 3) {
+      const cat = getCat('expense', t.categoryId);
+      anomalies.push({
+        type: '大额异常', severity: '中', icon: '⚠️',
+        desc: `${t.date}「${cat ? cat.name : '未分类'}」支出 ${fmt(t.amount)} 元，远超该分类平均单笔 ${fmt(avg)} 元`,
+        txIds: [t.id]
+      });
+    }
+  });
+
+  // 3. 整数大额：>= 5000 且是 1000 整数倍（可能多输一个 0）
+  tx.forEach(t => {
+    if (t.amount >= 5000 && t.amount % 1000 === 0) {
+      const cat = getCat(t.type, t.categoryId);
+      anomalies.push({
+        type: '整数大额', severity: '低', icon: '🔢',
+        desc: `${t.date}「${cat ? cat.name : '未分类'}」${t.type === 'income' ? '收入' : '支出'} ${fmt(t.amount)} 元为整千整数，请核对是否多输一个 0`,
+        txIds: [t.id]
+      });
+    }
+  });
+
+  // 4. 超预算分类（当月）
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+  const budget = state.budgets['shared'] || {};
+  const spentByCat = {};
+  tx.forEach(t => {
+    if (t.type === 'expense' && t.date.slice(0, 7) === ym) {
+      spentByCat[t.categoryId] = (spentByCat[t.categoryId] || 0) + t.amount;
+    }
+  });
+  Object.entries(spentByCat).forEach(([catId, spent]) => {
+    const limit = budget.categories && budget.categories[catId];
+    if (limit && spent > limit) {
+      const cat = getCat('expense', catId);
+      anomalies.push({
+        type: '超预算', severity: '中', icon: '📈',
+        desc: `「${cat ? cat.name : '未分类'}」本月已支出 ${fmt(spent)} 元，超过预算 ${fmt(limit)} 元`,
+        txIds: []
+      });
+    }
+  });
+
+  // 5. 账户负余额
+  const delta = buildDelta();
+  (state.assets['shared'] || []).forEach(a => {
+    const bal = a.amount + (delta[a.id] || 0);
+    if (a.type === 'asset' && bal < 0) {
+      anomalies.push({
+        type: '余额异常', severity: '高', icon: '🚨',
+        desc: `账户「${a.name}」当前余额为 ${fmt(bal)} 元（负数），请核对`,
+        txIds: []
+      });
+    }
+  });
+
+  const order = { '高': 0, '中': 1, '低': 2 };
+  anomalies.sort((a, b) => order[a.severity] - order[b.severity]);
+  return anomalies;
+}
+
+function renderAuditView() {
+  const anomalies = detectAnomalies();
+  $('auditSummary').innerHTML = anomalies.length > 0
+    ? `共发现 <b>${anomalies.length}</b> 个异常事项，点击可查看对应记录`
+    : '未发现明显异常，账目看起来很健康 ✅';
+
+  const list = $('auditList');
+  list.innerHTML = '';
+  if (anomalies.length === 0) {
+    list.innerHTML = '<li class="empty-tip">暂无异常</li>';
+    return;
+  }
+  anomalies.forEach(a => {
+    const li = document.createElement('li');
+    li.className = 'audit-item';
+    li.innerHTML = `
+      <span class="a-sev sev-${a.severity}">${a.severity}</span>
+      <span class="t-icon">${a.icon}</span>
+      <span class="t-info">
+        <span class="t-cat">${esc(a.type)}</span>
+        <span class="t-note">${esc(a.desc)}</span>
+      </span>
+    `;
+    if (a.txIds && a.txIds.length > 0) {
+      li.addEventListener('click', () => openTxModal(a.txIds[0]));
+    }
+    list.appendChild(li);
+  });
+}
+
+// ============ AI 深度分析 ============
+function buildAuditSummary() {
+  const book = getBook();
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+  const yearStr = String(now.getFullYear());
+  let monthInc = 0, monthExp = 0, yearExp = 0;
+  const catExp = {};
+  state.transactions.forEach(t => {
+    if (t.bookId !== currentBookId) return;
+    if (t.date.slice(0, 7) === ym) {
+      if (t.type === 'income') monthInc += t.amount;
+      else { monthExp += t.amount; catExp[t.categoryId] = (catExp[t.categoryId] || 0) + t.amount; }
+    }
+    if (t.date.slice(0, 4) === yearStr && t.type === 'expense') yearExp += t.amount;
+  });
+  const catLines = Object.entries(catExp).map(([cid, v]) => {
+    const c = getCat('expense', cid);
+    return `${c ? c.name : '未分类'} ${fmt(v)} 元`;
+  }).join('，');
+  const anomalies = detectAnomalies();
+  const anomalyLines = anomalies.map(a => `${a.type}：${a.desc}`).join('\n');
+  return `账本「${book.name}」
+本月收入 ${fmt(monthInc)} 元，本月支出 ${fmt(monthExp)} 元，本年支出 ${fmt(yearExp)} 元。
+本月支出分类：${catLines || '无'}。
+识别到的异常：
+${anomalyLines || '无'}`;
+}
+
+async function aiAnalyze() {
+  const cfg = state.aiConfig || {};
+  if (!cfg.apiKey) {
+    alert('请先设置 AI 的 API Key（推荐 DeepSeek）');
+    openAiSettings();
+    return;
+  }
+  const btn = $('btnAiAnalyze');
+  btn.disabled = true;
+  btn.textContent = '🤖 AI 分析中…';
+  const box = $('aiResult');
+  box.classList.remove('hidden');
+  box.innerHTML = '<div class="empty-tip">AI 正在分析你的账目，请稍候…</div>';
+
+  const prompt = `你是一名专业的财务审计师。以下是某位用户的个人记账数据摘要和系统识别到的异常，请用通俗易懂的中文，给出审计意见和改进建议（控制在 300 字以内，分点列出）。\n\n${buildAuditSummary()}`;
+
+  const res = await window.api.aiAnalyze({
+    apiKey: cfg.apiKey,
+    baseUrl: cfg.baseUrl || 'https://api.deepseek.com',
+    model: cfg.model || 'deepseek-chat',
+    messages: [{ role: 'user', content: prompt }]
+  });
+
+  btn.disabled = false;
+  btn.textContent = '🤖 AI 深度分析';
+  if (res.ok) {
+    box.innerHTML = `<div class="ai-result-box">${esc(res.text).replace(/\n/g, '<br>')}</div>`;
+  } else {
+    box.innerHTML = `<div class="empty-tip" style="color:var(--expense)">${esc(res.error)}</div>`;
+  }
+}
+
+function openAiSettings() {
+  const cfg = state.aiConfig || {};
+  $('aiApiKey').value = cfg.apiKey || '';
+  $('aiBaseUrl').value = cfg.baseUrl || 'https://api.deepseek.com';
+  $('aiModel').value = cfg.model || 'deepseek-chat';
+  aiModal.hidden = false;
+}
+
+function saveAiSettings() {
+  state.aiConfig = {
+    apiKey: $('aiApiKey').value.trim(),
+    baseUrl: $('aiBaseUrl').value.trim() || 'https://api.deepseek.com',
+    model: $('aiModel').value.trim() || 'deepseek-chat'
+  };
+  save();
+  aiModal.hidden = true;
+  alert('AI 设置已保存');
+}
+
 // ============ 分类管理弹窗 ============
 function setCatManageType(type) {
   catManageType = type;
@@ -1502,6 +1708,10 @@ function bindEvents() {
   $('recFrequency').addEventListener('change', toggleRecDayRow);
 
   $('btnExportExcel').addEventListener('click', exportExcel);
+
+  $('btnAiSettings').addEventListener('click', openAiSettings);
+  $('btnSaveAi').addEventListener('click', saveAiSettings);
+  $('btnAiAnalyze').addEventListener('click', aiAnalyze);
 
   $('btnManageCats').addEventListener('click', openCatModal);
   $('btnAddCat').addEventListener('click', addCat);
