@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
+  <title>我的记账</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <!-- 左侧边栏 -->
+  <aside class="sidebar">
+    <div class="logo">🌸 我的记账</div>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="🔍 搜索分类 / 备注 / 金额">
+    </div>
+    <div class="section-title">我的账本</div>
+    <ul class="book-list" id="bookList"></ul>
+    <button class="btn-ghost block" id="btnAddBook">＋ 新建账本</button>
+    <nav class="main-nav">
+      <button class="nav-btn active" data-view="calendar">📅 记账日历</button>
+      <button class="nav-btn" data-view="budget">💰 预算</button>
+      <button class="nav-btn" data-view="assets">🏦 资产</button>
+      <button class="nav-btn" data-view="recurring">🔁 周期记账</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class="btn-ghost block" id="btnManageCats">🏷 分类管理</button>
+      <button class="btn-ghost block" id="btnExportExcel">📊 导出 Excel</button>
+    </div>
+  </aside>
+
+  <!-- 主区域 -->
+  <main class="content">
+    <!-- 日历视图 -->
+    <div class="view" id="viewCalendar">
+      <header class="topbar">
+        <div class="month-nav">
+          <button class="icon-btn" id="prevMonth">‹</button>
+          <div class="month-title" id="monthTitle" title="点击查看整年">2026年10月 <span class="toggle-icon">▾</span></div>
+          <button class="icon-btn" id="nextMonth">›</button>
+          <button class="icon-btn today-btn" id="btnToday">今天</button>
+        </div>
+        <div class="summary">
+          <div class="summary-item income">收入 <b id="sumIncome">0.00</b></div>
+          <div class="summary-item expense">支出 <b id="sumExpense">0.00</b></div>
+          <div class="summary-item balance">结余 <b id="sumBalance">0.00</b></div>
+        </div>
+      </header>
+
+      <div class="calendar-tabs">
+        <button class="tab-btn active" id="tabCalendar">📅 日历</button>
+        <button class="tab-btn" id="tabList">📄 账单</button>
+      </div>
+
+      <!-- 日历模式 -->
+      <div id="calendarWrap">
+        <div class="calendar-head">
+          <span>周一</span><span>周二</span><span>周三</span><span>周四</span>
+          <span>周五</span><span>周六</span><span>周日</span>
+        </div>
+        <div class="calendar" id="calendar"></div>
+        <section class="day-panel">
+          <div class="day-panel-head">
+            <span id="dayTitle">点击日历上的某天查看明细</span>
+            <button class="btn-primary" id="btnAddTx">＋ 记一笔</button>
+          </div>
+          <ul class="tx-list" id="txList"></ul>
+        </section>
+      </div>
+
+      <!-- 账单模式 -->
+      <div id="billWrap" hidden>
+        <div class="bill-list" id="billList"></div>
+      </div>
+
+      <!-- 搜索结果 -->
+      <div id="searchWrap" hidden>
+        <div class="search-result-head">
+          <span id="searchResultTitle">搜索结果</span>
+          <button class="btn-ghost" id="btnClearSearch">清除搜索</button>
+        </div>
+        <ul class="tx-list" id="searchResultList"></ul>
+      </div>
+    </div>
+
+    <!-- 预算视图 -->
+    <div class="view" id="viewBudget" hidden>
+      <header class="view-head">
+        <h2>💰 预算</h2>
+        <span class="view-sub" id="budgetBookName"></span>
+      </header>
+
+      <div class="budget-cards">
+        <div class="budget-card">
+          <div class="bc-label">本月已支出</div>
+          <div class="bc-value" id="budgetMonthSpent">0.00</div>
+          <div class="bc-sub">月总预算 <b id="budgetMonthLimit">未设置</b></div>
+          <div class="progress"><div class="progress-bar" id="budgetMonthBar"></div></div>
+        </div>
+        <div class="budget-card">
+          <div class="bc-label">本年已支出</div>
+          <div class="bc-value" id="budgetYearSpent">0.00</div>
+          <div class="bc-sub">年总预算 <b id="budgetYearLimit">未设置</b></div>
+          <div class="progress"><div class="progress-bar" id="budgetYearBar"></div></div>
+        </div>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head">月预算 · 分类</div>
+        <div class="total-budget-row">
+          <label>月总预算</label>
+          <input type="number" id="budgetMonthInput" placeholder="如 5000" min="0" step="100">
+          <button class="btn-primary" id="btnSaveMonthBudget">保存</button>
+        </div>
+        <ul class="cat-budget-list" id="catBudgetList"></ul>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">年预算</div>
+        <div class="total-budget-row">
+          <label>年总预算</label>
+          <input type="number" id="budgetYearInput" placeholder="如 60000" min="0" step="1000">
+          <button class="btn-primary" id="btnSaveYearBudget">保存</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- 资产视图 -->
+    <div class="view" id="viewAssets" hidden>
+      <header class="view-head">
+        <h2>🏦 资产</h2>
+        <span class="view-sub" id="assetsBookName"></span>
+        <button class="btn-primary" id="btnAddAsset">＋ 添加资产</button>
+      </header>
+
+      <div class="asset-cards">
+        <div class="asset-card asset"><div class="ac-label">总资产</div><div class="ac-value" id="totalAssets">0.00</div></div>
+        <div class="asset-card liability"><div class="ac-label">总负债</div><div class="ac-value" id="totalLiabilities">0.00</div></div>
+        <div class="asset-card net"><div class="ac-label">净资产</div><div class="ac-value" id="netWorth">0.00</div></div>
+      </div>
+
+      <div class="charts-row">
+        <div class="chart-box"><div class="chart-title">资产分布</div><canvas id="assetPie"></canvas></div>
+        <div class="chart-box"><div class="chart-title">净资产走势</div><canvas id="worthLine"></canvas></div>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head">账户列表</div>
+        <ul class="asset-list" id="assetList"></ul>
+      </section>
+    </div>
+
+    <!-- 周期记账视图 -->
+    <div class="view" id="viewRecurring" hidden>
+      <header class="view-head">
+        <h2>🔁 周期记账</h2>
+        <button class="btn-primary" id="btnAddRecurring">＋ 添加周期</button>
+      </header>
+      <ul class="recurring-list" id="recurringList"></ul>
+      <p class="view-tip">房租、水电等固定费用设置好后，每次打开软件都会自动补记到期的账。</p>
+    </div>
+  </main>
+</div>
+
+<!-- 记账弹窗 -->
+<div class="modal-overlay" id="txModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="txModalTitle">记一笔</h3>
+      <button class="icon-btn close" data-close="txModal">✕</button>
+    </div>
+    <div class="type-switch" id="typeSwitch">
+      <button class="type-btn active" data-type="expense">支出</button>
+      <button class="type-btn" data-type="income">收入</button>
+    </div>
+    <div class="form-row amount-row">
+      <span class="currency">¥</span>
+      <input type="number" id="txAmount" placeholder="0.00" step="0.01" min="0">
+    </div>
+    <div class="form-row">
+      <label>日期</label>
+      <input type="date" id="txDate">
+    </div>
+    <div class="form-row">
+      <label>分类</label>
+      <div class="cat-grid" id="catGrid"></div>
+    </div>
+    <div class="form-row">
+      <label>账户（可选，关联后自动增减余额）</label>
+      <select id="txAccount"></select>
+    </div>
+    <div class="form-row">
+      <label>备注</label>
+      <input type="text" id="txNote" placeholder="写点什么（可选）">
+    </div>
+    <div class="form-row">
+      <label>图片（可选）</label>
+      <div class="img-pick">
+        <div class="img-preview hidden" id="txImagePreview"></div>
+        <button class="btn-ghost" id="btnAddImage">📷 添加图片</button>
+        <input type="file" id="txImageInput" accept="image/*" hidden>
+        <button class="btn-danger hidden" id="btnRemoveImage">移除图片</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger hidden" id="btnDeleteTx">删除</button>
+      <div class="spacer"></div>
+      <button class="btn-ghost" data-close="txModal">取消</button>
+      <button class="btn-primary" id="btnSaveTx">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 周期记账弹窗 -->
+<div class="modal-overlay" id="recurringModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="recurringModalTitle">添加周期记账</h3>
+      <button class="icon-btn close" data-close="recurringModal">✕</button>
+    </div>
+    <div class="type-switch" id="recurringTypeSwitch">
+      <button class="type-btn active" data-type="expense">支出</button>
+      <button class="type-btn" data-type="income">收入</button>
+    </div>
+    <div class="form-row">
+      <label>名称 / 备注</label>
+      <input type="text" id="recNote" placeholder="如：房租、水电费">
+    </div>
+    <div class="form-row">
+      <label>金额</label>
+      <input type="number" id="recAmount" placeholder="0.00" min="0" step="0.01">
+    </div>
+    <div class="form-row">
+      <label>分类</label>
+      <div class="cat-grid" id="recCatGrid"></div>
+    </div>
+    <div class="form-row">
+      <label>频率</label>
+      <select id="recFrequency">
+        <option value="monthly">每月</option>
+        <option value="weekly">每周</option>
+        <option value="yearly">每年</option>
+      </select>
+    </div>
+    <div class="form-row" id="recDayRow">
+      <label>每月几号</label>
+      <input type="number" id="recDay" value="1" min="1" max="31">
+    </div>
+    <div class="form-row">
+      <label>开始日期</label>
+      <input type="date" id="recStart">
+    </div>
+    <div class="form-row">
+      <label>账户（可选）</label>
+      <select id="recAccount"></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger hidden" id="btnDeleteRecurring">删除</button>
+      <div class="spacer"></div>
+      <button class="btn-ghost" data-close="recurringModal">取消</button>
+      <button class="btn-primary" id="btnSaveRecurring">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 分类管理弹窗 -->
+<div class="modal-overlay" id="catModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3>分类管理</h3>
+      <button class="icon-btn close" data-close="catModal">✕</button>
+    </div>
+    <div class="type-switch" id="catTypeSwitch">
+      <button class="type-btn active" data-type="expense">支出分类</button>
+      <button class="type-btn" data-type="income">收入分类</button>
+    </div>
+    <ul class="cat-manage-list" id="catManageList"></ul>
+    <div class="form-row add-cat-row">
+      <input type="text" id="newCatName" placeholder="新分类名称">
+      <span class="icon-preview" id="newCatIconPreview">❔</span>
+      <input type="hidden" id="newCatIcon">
+      <button class="btn-ghost pick-icon" data-target="newCatIcon">选图标</button>
+      <button class="btn-primary" id="btnAddCat">添加</button>
+    </div>
+    <div class="modal-actions">
+      <div class="spacer"></div>
+      <button class="btn-ghost" data-close="catModal">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 账本弹窗 -->
+<div class="modal-overlay" id="bookModal" hidden>
+  <div class="modal small">
+    <div class="modal-head">
+      <h3 id="bookModalTitle">新建账本</h3>
+      <button class="icon-btn close" data-close="bookModal">✕</button>
+    </div>
+    <div class="form-row">
+      <label>账本名称</label>
+      <input type="text" id="bookName" placeholder="如：家庭账、生意账">
+    </div>
+    <div class="form-row">
+      <label>图标</label>
+      <div class="icon-row">
+        <span class="icon-preview" id="bookIconPreview">📒</span>
+        <input type="hidden" id="bookIcon">
+        <button class="btn-ghost pick-icon" data-target="bookIcon">选图标</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>关联资产（可多选，记账时可选这些账户）</label>
+      <div class="linked-assets" id="linkedAssets"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger hidden" id="btnDeleteBook">删除账本</button>
+      <div class="spacer"></div>
+      <button class="btn-ghost" data-close="bookModal">取消</button>
+      <button class="btn-primary" id="btnSaveBook">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 资产弹窗 -->
+<div class="modal-overlay" id="assetModal" hidden>
+  <div class="modal small">
+    <div class="modal-head">
+      <h3 id="assetModalTitle">添加资产</h3>
+      <button class="icon-btn close" data-close="assetModal">✕</button>
+    </div>
+    <div class="form-row">
+      <label>名称</label>
+      <input type="text" id="assetName" placeholder="如：现金、招商银行卡">
+    </div>
+    <div class="form-row">
+      <label>图标</label>
+      <div class="icon-row">
+        <span class="icon-preview" id="assetIconPreview">💵</span>
+        <input type="hidden" id="assetIcon">
+        <button class="btn-ghost pick-icon" data-target="assetIcon">选图标</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>类型</label>
+      <div class="type-switch" id="assetTypeSwitch">
+        <button class="type-btn active" data-type="asset">资产</button>
+        <button class="type-btn" data-type="liability">负债</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>初始余额</label>
+      <input type="number" id="assetAmount" placeholder="0.00" min="0" step="0.01">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger hidden" id="btnDeleteAsset">删除</button>
+      <div class="spacer"></div>
+      <button class="btn-ghost" data-close="assetModal">取消</button>
+      <button class="btn-primary" id="btnSaveAsset">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 图标选择器弹窗 -->
+<div class="modal-overlay" id="iconModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3>选择图标</h3>
+      <button class="icon-btn close" data-close="iconModal">✕</button>
+    </div>
+    <div class="icon-grid" id="iconGrid"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="btnUploadIcon">📁 从图库上传</button>
+      <input type="file" id="iconFileInput" accept="image/*" hidden>
+      <div class="spacer"></div>
+      <button class="btn-ghost" data-close="iconModal">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 图片查看弹窗 -->
+<div class="modal-overlay" id="imageViewer" hidden>
+  <div class="image-viewer-box">
+    <img id="imageViewerImg" src="" alt="">
+    <button class="icon-btn close" id="btnCloseImageViewer">✕</button>
+  </div>
+</div>
+
+<script src="lib/chart.umd.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
